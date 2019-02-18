@@ -1,0 +1,7 @@
+#subtab-TrustpilotTab a i,
+.icon-TrustpilotTab{
+    height: 18px !important;
+    width: 18px !important;
+    background-image: url('../img/logo.svg') !important;
+    color: transparent !important;
+}
