@@ -18,12 +18,13 @@ include_once TP_PATH_ROOT . '/config.php';
 include_once TP_PATH_ROOT . '/orders.php';
 include_once TP_PATH_ROOT . '/apiClients/TrustpilotHttpClient.php';
 
-class Trustpilot_PastOrders
+class TrustpilotPastOrders
 {
-    public function __construct($context)
+    public function __construct($context, $context_scope = null)
     {
-        $this->orders = new Trustpilot_Orders($context);
-        $this->trustpilot_api = new TrustpilotHttpClient(Trustpilot_Config::getInstance()->apiUrl);
+        $this->orders = new TrustpilotOrders($context);
+        $this->trustpilot_api = new TrustpilotHttpClient(TrustpilotConfig::getInstance()->apiUrl);
+        $this->context_scope = $context_scope;
     }
 
     public function sync($period_in_days)
@@ -31,7 +32,7 @@ class Trustpilot_PastOrders
         $this->setTrustpilotField('sync_in_progress', 'true');
         $this->setTrustpilotField('show_past_orders_initial', 'false');
         try {
-            $key = Trustpilot_Config::getInstance()->getFromMasterSettings('general')->key;
+            $key = TrustpilotConfig::getInstance()->getFromMasterSettings('general')->key;
             $collect_product_data = WITHOUT_PRODUCT_DATA;
             if (!is_null($key)) {
                 $this->setTrustpilotField('past_orders', 0);
@@ -64,9 +65,14 @@ class Trustpilot_PastOrders
                     $post_batch = $this->getInvitationsForPeriod($period_in_days, $collect_product_data, $pageId);
                 }
             }
-        } catch (Exception $e) {
-            $message = 'Failed to sync past orders. Error: ' . $e->getMessage();
-            Logger::addLog($message, 2, null, null, null, true);
+        } catch (\Throwable $e) {
+            $message = 'Failed to sync past orders';
+            Logger::addLog($message . ' Error: ' . $e->getMessage(), 2);
+            Module::getInstanceByName('trustpilot')->logError($e, $message);
+        } catch (\Exception $e) {
+            $message = 'Failed to sync past orders';
+            Logger::addLog($message . ' Error: ' . $e->getMessage(), 2);
+            Module::getInstanceByName('trustpilot')->logError($e, $message);
         }
         $this->setTrustpilotField('sync_in_progress', 'false');
     }
@@ -75,7 +81,7 @@ class Trustpilot_PastOrders
     {
         $this->setTrustpilotField('sync_in_progress', 'true');
         try {
-            $key = Trustpilot_Config::getInstance()->getFromMasterSettings('general')->key;
+            $key = TrustpilotConfig::getInstance()->getFromMasterSettings('general')->key;
             $collect_product_data = WITHOUT_PRODUCT_DATA;
             $failed_orders_object = (array) json_decode($this->getTrustpilotField('failed_orders'));
             if (!is_null($key)) {
@@ -107,9 +113,14 @@ class Trustpilot_PastOrders
                     }
                 }
             }
-        } catch (Exception $e) {
-            $message = 'Failed to sync past orders. Error: ' . $e->getMessage();
-            Logger::addLog($message, 2, null, null, null, true);
+        } catch (\Throwable $e) {
+            $message = 'Failed to sync past orders';
+            Logger::addLog($message . 'Error: ' . $e->getMessage(), 2);
+            Module::getInstanceByName('trustpilot')->logError($e, $message);
+        } catch (\Exception $e) {
+            $message = 'Failed to sync past orders';
+            Logger::addLog($message . 'Error: ' . $e->getMessage(), 2);
+            Module::getInstanceByName('trustpilot')->logError($e, $message);
         }
         $this->setTrustpilotField('sync_in_progress', 'false');
     }
@@ -157,7 +168,7 @@ class Trustpilot_PastOrders
             'date_created' => "> '" . ($date->setTimestamp(time() - (86400 * $period_in_days))->format('Y-m-d H:i:s') ) . "'",
             'limit' => 20,
             'paged' => $pageId,
-            'past_order_statuses' => Trustpilot_Config::getInstance()->getFromMasterSettings('pastOrderStatuses')
+            'past_order_statuses' => TrustpilotConfig::getInstance()->getFromMasterSettings('pastOrderStatuses')
         );
         $order_ids = $this->getPastOrdersIds($args);
         return $this->getInvitationsByOrderIds($collect_product_data, $order_ids);
@@ -165,7 +176,7 @@ class Trustpilot_PastOrders
 
     private function getInvitationsByOrderIds($collect_product_data, $order_ids)
     {
-	    $invitations = array();
+        $invitations = array();
 
         foreach ($order_ids as $order_id) {
             $order = $this->orders->getInvitation($order_id, 'past-orders', $collect_product_data == WITH_PRODUCT_DATA);
@@ -179,7 +190,7 @@ class Trustpilot_PastOrders
     {
         $db_prefix = _DB_PREFIX_;
         $query = "SELECT o.id_order FROM {$db_prefix}orders o
-          WHERE o.reference IN (\"".implode('","',$order_refs)."\")
+          WHERE o.reference IN (\"".implode('","', $order_refs)."\")
         ";
         $order_ids = Db::getInstance()->ExecuteS($query);
         return $this->getInvitationsByOrderIds($collect_product_data, $order_ids);
@@ -187,12 +198,12 @@ class Trustpilot_PastOrders
 
     public function setTrustpilotField($field, $value)
     {
-        Trustpilot_Config::getInstance()->setConfigValues($field, $value);
+        TrustpilotConfig::getInstance()->setConfigValues($field, $value, $this->context_scope);
     }
 
     public function getTrustpilotField($field)
     {
-        return Trustpilot_Config::getInstance()->getConfigValues($field, true);
+        return TrustpilotConfig::getInstance()->getConfigValues($field, true, $this->context_scope);
     }
 
     private function getPastOrdersIds($args)
@@ -219,8 +230,7 @@ class Trustpilot_PastOrders
         $failed_orders = json_decode($this->getTrustpilotField('failed_orders'));
 
         $data = array();
-        if (isset($response['data']))
-        {
+        if (isset($response['data'])) {
             $data = $response['data'];
         }
 
@@ -232,7 +242,7 @@ class Trustpilot_PastOrders
         // all/some failed
         if ($response['code'] == 201 && count($data) > 0) {
             $failed_order_ids = $this->selectColumn($data, 'referenceId');
-            $succeeded_orders = array_filter($post_batch['invitations'], function ($invitation) use ($failed_order_ids)  {
+            $succeeded_orders = array_filter($post_batch['invitations'], function ($invitation) use ($failed_order_ids) {
                 return !(in_array($invitation['referenceId'], $failed_order_ids));
             });
 
@@ -286,5 +296,4 @@ class Trustpilot_PastOrders
             $this->setTrustpilotField('failed_orders', json_encode($failed_orders));
         }
     }
-
 }

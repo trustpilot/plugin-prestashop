@@ -7,7 +7,7 @@
  *}
 {literal}
 <script type="text/javascript" data-keepinline="true">
-    let trustpilot_invitation = {/literal}{$invitation|@json_encode nofilter}{literal};
+    var trustpilot_invitation = {/literal}{$invitation|@json_encode nofilter}{literal};
 </script>
 <script type="text/javascript" src="{/literal}{$invite_js_dir}{literal}"></script>
 {/literal}

@@ -1,5 +1,4 @@
 <?php
-
 /**
  * Trustpilot Module
  *
@@ -11,20 +10,29 @@
 class TrustpilotHttpClient
 {
     const HTTP_REQUEST_TIMEOUT = 3;
+    private $trustpilotPluginStatus;
+    private $apiUrl;
 
     public function __construct($apiUrl)
     {
         $this->apiUrl = $apiUrl;
+        $this->trustpilotPluginStatus = new TrustpilotPluginStatus();
     }
 
     public function post($url, $data)
     {
         $httpRequest = "POST";
-        return $this->request(
+        $response = $this->request(
             $url,
             $httpRequest,
             $data
         );
+
+        if ($response['code'] > 250 && $response['code'] < 254) {
+            $this->trustpilotPluginStatus->setPluginStatus($response['code'], $response['data']);
+        }
+
+        return $response;
     }
 
     public function buildUrl($key, $endpoint)
@@ -34,12 +42,12 @@ class TrustpilotHttpClient
 
     public function postInvitation($key, $data = array())
     {
-        return $this->post($this->buildUrl($key, '/invitation'), $data);
+        return $this->checkStatusAndPost($this->buildUrl($key, '/invitation'), $data);
     }
 
     public function postBatchInvitations($key, $data = array())
     {
-        return $this->post($this->buildUrl($key, '/batchinvitations'), $data);
+        return $this->checkStatusAndPost($this->buildUrl($key, '/batchinvitations'), $data);
     }
 
     public function postSettings($key, $data = array())
@@ -51,9 +59,24 @@ class TrustpilotHttpClient
     {
         try {
             return $this->post($this->apiUrl . 'log', $data);
-        } catch (Exception $e) {
+        } catch (\Throwable $e) {
+            return false;
+        } catch (\Exception $e) {
             return false;
         }
+    }
+
+    public function checkStatusAndPost($url, $data = array())
+    {
+        $host = parse_url(_PS_BASE_URL_, PHP_URL_HOST);
+        $code = $this->trustpilotPluginStatus->checkPluginStatus($host);
+
+        if ($code > 250 && $code < 254) {
+            return array(
+                'code' => $code,
+            );
+        }
+        return $this->post($url, $data);
     }
 
     public function request($url, $httpRequest, $data = null, $params = array(), $timeout = self::HTTP_REQUEST_TIMEOUT)
@@ -71,7 +94,7 @@ class TrustpilotHttpClient
         $response = array();
         $response['code'] = $responseCode;
         if (is_object($responseData) || is_array($responseData)) {
-                $response['data'] = $responseData;
+            $response['data'] = $responseData;
         }
         return $response;
     }
@@ -103,7 +126,7 @@ class TrustpilotHttpClient
             curl_setopt($ch, CURLOPT_CUSTOMREQUEST, 'POST');
             curl_setopt($ch, CURLOPT_HTTPHEADER, array(
                 'content-type: application/json',
-                'Content-Length: ' . Tools::strlen($encoded_data),
+                'Content-Length: ' . strlen($encoded_data),
                 'Origin: ' . _PS_BASE_URL_,
             ));
             curl_setopt($ch, CURLOPT_POSTFIELDS, $encoded_data);

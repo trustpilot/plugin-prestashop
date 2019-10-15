@@ -13,48 +13,53 @@ if (!defined('TP_PATH_ROOT')) {
 
 include_once TP_PATH_ROOT . '/config.php';
 include_once TP_PATH_ROOT . '/pastOrders.php';
+include_once TP_PATH_ROOT . '/orders.php';
 
 class TrustpilotViewLoader
 {
     public function __construct($context = null)
     {
+        $this->orders = new TrustpilotOrders($context);
         $this->context = $context;
     }
 
     public function getValues()
     {
-        $config = Trustpilot_Config::getInstance();
+        $config = TrustpilotConfig::getInstance();
         $data_past_orders = $this->getPastOrdersInfo();
         $page_urls = $this->getPageUrls();
         $custom_trustboxes = $this->getCustomTrustBoxes();
         return array(
-                'module' => array(
-                    'class' => get_class($this),
-                    'name' => 'trustpilot',
-                    'displayName' => 'Trustpilot reviews'
-                ),
-                'version' => _PS_VERSION_,
-                'plugin_version' => $config->version,
-                'settings' => base64_encode($config->getConfigValues('master_settings')),
-                'sku' => $this->getProductSku(),
-                'name' => $this->getProductName(),
-                'data_past_orders' => $data_past_orders,
-                'integration_app_url' => $this->getDomainName($config->integration_app_url),
-                'page_urls' => $page_urls,
-                'custom_trustboxes' => $custom_trustboxes,
-                'admin_js_dir' => __ASSETS_JS_DIR__ . '/tp_admin.js',
-                'product_identification_options' => json_encode(array('none', 'reference', 'ean13', 'upc', 'isbn')),
-                'is_from_marketplace' => $config->is_from_marketplace,
-                'user_id' => (int)$this->context->employee->id,
-                'starting_url' => $this->context->link->getPageLink('index', true),
-                'trustbox_preview_url' => $config->trustbox_preview_url,
-                'ajax_url' => $this->context->link->getModuleLink('trustpilot', 'trustpilotajax'),
-            );
+            'module' => array(
+                'class' => get_class($this),
+                'name' => 'trustpilot',
+                'displayName' => 'Trustpilot reviews'
+            ),
+            'version' => _PS_VERSION_,
+            'plugin_version' => $config->version,
+            'settings' => base64_encode($config->getConfigValues('master_settings')),
+            'sku' => $this->getProductSku(),
+            'name' => $this->getProductName(),
+            'data_past_orders' => $data_past_orders,
+            'integration_app_url' => $this->getDomainName($config->integration_app_url),
+            'page_urls' => $page_urls,
+            'custom_trustboxes' => $custom_trustboxes,
+            'admin_js_dir' => __ASSETS_JS_DIR__ . '/tp_admin.js',
+            'product_identification_options' => $this->getProductIdentificationOptions(),
+            'is_from_marketplace' => $config->is_from_marketplace,
+            'user_id' => (int)$this->context->employee->id,
+            'starting_url' => $this->context->link->getPageLink('index', true),
+            'trustbox_preview_url' => $config->trustbox_preview_url,
+            'configuration_scope_tree' => base64_encode(json_encode($config->getConfigurationScopeTree())),
+            'ajax_url' => $this->context->link->getModuleLink('trustpilot', 'trustpilotajax'),
+            'context_scope' => Shop::getContext(),
+            'plugin_status' => base64_encode($config->getConfigValues('plugin_status')),
+        );
     }
 
     public function getPastOrdersInfo()
     {
-        $past_orders = new Trustpilot_PastOrders($this->context);
+        $past_orders = new TrustpilotPastOrders($this->context);
         $info = $past_orders->getPastOrdersInfo();
         $info['basis'] = 'plugin';
         return json_encode($info);
@@ -86,14 +91,14 @@ class TrustpilotViewLoader
             'category' => $category->getLink(),
             'product' => $productUrl,
         );
-        $customPageUrls = json_decode(Trustpilot_Config::getInstance()->getConfigValues('page_urls'));
+        $customPageUrls = json_decode(TrustpilotConfig::getInstance()->getConfigValues('page_urls'));
         $urls = (object) array_merge((array) $customPageUrls, (array) $urls);
         return base64_encode(json_encode($urls));
     }
 
     public function getCustomTrustBoxes()
     {
-        $config = Trustpilot_Config::getInstance();
+        $config = TrustpilotConfig::getInstance();
         $custom_trustboxes = $config->getConfigValues('custom_trustboxes');
         if ($custom_trustboxes) {
             return $custom_trustboxes;
@@ -114,14 +119,13 @@ class TrustpilotViewLoader
     public function getProductSku()
     {
         $product = $this->getFirstProduct();
-        $config = Trustpilot_Config::getInstance();
-        $skuSelector = $config->getFromMasterSettings('skuSelector');
-        if (!empty($product) && $skuSelector != 'none' && $skuSelector != '') {
-            $sku = $product->{$skuSelector};
-            return $sku;
-        } else {
-            return '';
+        
+        $skus = TRUSTPILOT_PRODUCT_ID_PREFIX . $product->id;
+        if (!empty($product)) {
+            $sku = $this->orders->getAttribute($product, null, 'skuSelector', $this->getLanguageId());
+            $skus  = $skus . ',' . $sku;
         }
+        return $skus;
     }
 
     public function getProductName()
@@ -153,4 +157,29 @@ class TrustpilotViewLoader
         }
     }
 
+    public function getProductIdentificationOptions()
+    {
+        $fields = array('none', 'reference', 'ean13', 'upc', 'isbn');
+        $dynamicFields = array('sku', 'mpn', 'gtin');
+        $attrs = $this->getAttributes();
+        foreach ($attrs as $attr) {
+            foreach ($dynamicFields as $field) {
+                if (stripos($attr, $field) !== false && !in_array($field, $fields)) {
+                    array_push($fields, $attr);
+                }
+            }
+        }
+
+        return json_encode($fields);
+    }
+
+    private function getAttributes()
+    {
+        $attr = array();
+        $productAttrs = Feature::getFeatures($this->getLanguageId());
+        foreach ($productAttrs as $productAttr) {
+            array_push($attr, $productAttr['name']);
+        }
+        return $attr;
+    }
 }

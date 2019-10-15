@@ -9,7 +9,7 @@
 
 // include_once('../../config/config.inc.php');
 
-class Trustpilot_Updater
+class TrustpilotUpdater
 {
     public static function trustpilotGetPlugins($plugins)
     {
@@ -18,11 +18,11 @@ class Trustpilot_Updater
             'trustpilot_preserve_zip' => false
         );
 
-        foreach($plugins as $plugin) {
+        foreach ($plugins as $plugin) {
             $source = $plugin['path'];
             $target = $args['path'].$plugin['name'].'.zip';
 
-            Logger::addLog('Updating Trustpilot reviews plugin. Source: ' . $source . ', target: ' . $target, 2);
+            Logger::addLog('Updating Trustpilot reviews plugin. Source: ' . $source . ', target: ' . $target, 1);
 
             if (file_exists($target)) {
                 unlink($target);
@@ -42,8 +42,7 @@ class Trustpilot_Updater
         curl_close($ch);
         if (file_put_contents($path, $data)) {
             return true;
-        }
-        else {
+        } else {
             return false;
         }
     }
@@ -55,15 +54,14 @@ class Trustpilot_Updater
                 $is_file = Tools::substr(zip_entry_name($entry), -1) == '/' ? false : true;
                 $file_path = $args['path'] . zip_entry_name($entry);
                 if ($is_file) {
-                    if (zip_entry_open($zip,$entry, "r")) {
+                    if (zip_entry_open($zip, $entry, "r")) {
                         $fstream = zip_entry_read($entry, zip_entry_filesize($entry));
                         file_put_contents($file_path, $fstream);
                         chmod($file_path, 0777);
                     }
 
                     zip_entry_close($entry);
-                }
-                else {
+                } else {
                     if (zip_entry_name($entry)) {
                         if (!file_exists($file_path)) {
                             mkdir($file_path);
@@ -91,5 +89,4 @@ class Trustpilot_Updater
         $trustpilot->enable();
         return $trustpilot->isEnabled($installer);
     }
-
 }

@@ -1,5 +1,4 @@
 <?php
-
 /**
  * Trustpilot Module
  *
@@ -27,13 +26,17 @@ define('__ASSETS_JS_DIR__', __PS_BASE_URI__ . 'modules/trustpilot/views/js');
 include_once TP_PATH_ROOT . '/orders.php';
 include_once TP_PATH_ROOT . '/config.php';
 include_once TP_PATH_ROOT . '/pastOrders.php';
+include_once TP_PATH_ROOT . '/products.php';
 include_once TP_PATH_ROOT . '/trustbox.php';
 include_once TP_PATH_ROOT . '/viewLoader.php';
 include_once TP_PATH_ROOT . '/updater.php';
 include_once TP_PATH_ROOT . '/apiClients/TrustpilotHttpClient.php';
+include_once TP_PATH_ROOT . '/pluginStatus.php';
 
 class Trustpilot extends Module
 {
+    private $trustpilotPluginStatus;
+
     public function __construct()
     {
         $this->name                   = 'trustpilot';
@@ -47,13 +50,13 @@ class Trustpilot extends Module
         $this->bootstrap  = true;
         $this->module_key = 'd755105a2b739a94b2ba921faac5a546';
 
-        $this->httpClient = new TrustpilotHttpClient(Trustpilot_Config::getInstance()->apiUrl);
+        $this->httpClient = new TrustpilotHttpClient(TrustpilotConfig::getInstance()->apiUrl);
+        $this->trustpilotPluginStatus = new TrustpilotPluginStatus();
 
         parent::__construct();
         $this->displayName = $this->l('Trustpilot reviews');
-        $this->version = '2.50.652';
+        $this->version = '2.50.762';
         $this->description = $this->l('The Trustpilot Review extension makes it simple and easy for merchants to collect reviews from their customers to power their marketing efforts, increase sales conversion, build their online reputation and draw business insights.');
-
         $this->confirmUninstall = $this->l('Are you sure you want to uninstall?');
     }
 
@@ -100,7 +103,7 @@ class Trustpilot extends Module
 
     public function handleSaveChanges()
     {
-        $config = Trustpilot_Config::getInstance();
+        $config = TrustpilotConfig::getInstance();
         if (Tools::getIsset('settings')) {
             $settings = base64_decode(Tools::getValue('settings'));
             $queries = array();
@@ -108,17 +111,17 @@ class Trustpilot extends Module
 
             if (isset($queries['settings'])) {
                 $settings = $queries['settings'];
-                $config->setConfigValues('master_settings', $settings);
+                $config->setConfigValues('master_settings', $settings, $queries['context_scope']);
                 return $config->getConfigValues('master_settings');
             }
             if (isset($queries['customTrustboxes'])) {
                 $customTrustboxes = $queries['customTrustboxes'];
-                $config->setConfigValues('custom_trustboxes', $customTrustboxes);
+                $config->setConfigValues('custom_trustboxes', $customTrustboxes, $queries['context_scope']);
                 return $config->getConfigValues('custom_trustboxes');
             }
             if (isset($queries['pageUrls'])) {
                 $pageUrls = $queries['pageUrls'];
-                $config->setConfigValues('page_urls', $pageUrls);
+                $config->setConfigValues('page_urls', $pageUrls, $queries['context_scope']);
                 return $config->getConfigValues('page_urls');
             }
         }
@@ -131,16 +134,34 @@ class Trustpilot extends Module
         parse_str($settings, $queries);
 
         $period_in_days = $queries['sync'];
-        $past_orders = new Trustpilot_PastOrders($this->context);
+        $past_orders = new TrustpilotPastOrders($this->context, $queries['context_scope']);
         $past_orders->sync($period_in_days);
         $info = $past_orders->getPastOrdersInfo();
         $info['basis'] = 'plugin';
         return json_encode($info);
     }
 
+    public function checkSkus()
+    {
+        $settings = base64_decode(Tools::getValue('settings'));
+        $queries = array();
+        parse_str($settings, $queries);
+
+        $skuSelector = $queries['skuSelector'];
+        $products = new TrustpilotProducts($this->context);
+        $result = array(
+            'skuScannerResults' => $products->checkSkus($skuSelector)
+        );
+        return json_encode($result);
+    }
+
     public function resync()
     {
-        $past_orders = new Trustpilot_PastOrders($this->context);
+        $settings = base64_decode(Tools::getValue('settings'));
+        $queries = array();
+        parse_str($settings, $queries);
+
+        $past_orders = new TrustpilotPastOrders($this->context, $queries['context_scope']);
         $past_orders->resync();
         $info = $past_orders->getPastOrdersInfo();
         $info['basis'] = 'plugin';
@@ -154,19 +175,24 @@ class Trustpilot extends Module
         parse_str($settings, $queries);
 
         $value =  $queries['showPastOrdersInitial'];
-        $config = Trustpilot_Config::getInstance();
+        $config = TrustpilotConfig::getInstance();
         $config->setConfigValues('show_past_orders_initial', $value);
     }
 
     public function getPastOrdersInfo()
     {
-        $past_orders = new Trustpilot_PastOrders($this->context);
+        $settings = base64_decode(Tools::getValue('settings'));
+        $queries = array();
+        parse_str($settings, $queries);
+
+        $past_orders = new TrustpilotPastOrders($this->context, $queries['context_scope']);
         $info = $past_orders->getPastOrdersInfo();
         $info['basis'] = 'plugin';
         return json_encode($info);
     }
 
-    public function enable($force_all = false) {
+    public function enable($force_all = false)
+    {
         parent::enable($force_all);
         $this->uninstallTabs();
         $this->installTab();
@@ -181,12 +207,11 @@ class Trustpilot extends Module
     public function uninstall()
     {
         $this->uninstallTabs();
-        $config = Trustpilot_Config::getInstance();
+        $config = TrustpilotConfig::getInstance();
         $data = array(
             'settings'   => Tools::stripslashes(json_encode($config)),
             'event'      => 'Uninstalled',
             'platform'   => 'PrestaShop'
-
         );
         $this->httpClient->postLog($data);
 
@@ -207,12 +232,12 @@ class Trustpilot extends Module
     public function hookDisplayHeader($params)
     {
         if (!$this->active) {
-            Logger::addLog('Trustpilot module: Skipping trustpilot script rendering. Module is not active', 2, null, null, null, true);
+            Logger::addLog('Trustpilot module: Skipping trustpilot script rendering. Module is not active', 2);
             return;
         }
 
-        $config = Trustpilot_Config::getInstance();
-        $trustbox = Trustpilot_Trustbox::getInstance();
+        $config = TrustpilotConfig::getInstance();
+        $trustbox = TrustpilotTrustbox::getInstance($this->context);
         $trustbox_settings = $config->getFromMasterSettings('trustbox');
         $this->context->smarty->compile_check = true;
         $this->context->smarty->assign(
@@ -236,20 +261,42 @@ class Trustpilot extends Module
     public function hookDisplayOrderConfirmation($params)
     {
         if (!$this->active) {
-            Logger::addLog('Trustpilot module: Skipping invitation sending. Module is not active', 2, null, null, null, true);
+            Logger::addLog('Trustpilot module: Skipping invitation sending. Module is not active', 2);
             return;
         }
 
         if (!$this->isModuleConfigured()) {
-            Logger::addLog('Trustpilot module: Skipping invitation sending. Trustpilot module is not configured.', 2, null, null, null, true);
+            Logger::addLog('Trustpilot module: Skipping invitation sending. Trustpilot module is not configured.', 2);
             return;
         }
 
-        $orders = new Trustpilot_Orders($this->context);
+        $host = parse_url(_PS_BASE_URL_, PHP_URL_HOST);
+        $code = $this->trustpilotPluginStatus->checkPluginStatus($host);
+        if ($code > 250 && $code < 254) {
+            Logger::addLog('Trustpilot module: Skipping invitation sending from confirmation page. Trustpilot module is disabled.');
+            return;
+        }
+
+        $orders = new TrustpilotOrders($this->context);
         $invitation = $orders->getInvitation($params, 'displayOrderConfirmation');
-        $mapped_invitation_trigger = Trustpilot_Config::getInstance()->getFromMasterSettings('general')->mappedInvitationTrigger;
+        $mapped_invitation_trigger = TrustpilotConfig::getInstance()->getFromMasterSettings('general')->mappedInvitationTrigger;
         if (!in_array(__TRUSTPILOTORDERCONFIRMED__, $mapped_invitation_trigger)) {
             $invitation['payloadType'] = 'OrderStatusUpdate';
+        }
+
+        try {
+            $order = isset($params['order']) ? $params['order'] : $params['objOrder'];
+            $currency = new CurrencyCore($order->id_currency);
+            $invitation['totalCost'] = $order->total_paid;
+            $invitation['currency'] = $currency->iso_code;
+        } catch (\Throwable $e) {
+            $message = 'Unable to get order total cost';
+            Logger::addLog($message . ' Error: ' . $e->getMessage(), 2);
+            $this->logError($e, $message);
+        } catch (\Exception $e) {
+            $message = 'Unable to get order total cost';
+            Logger::addLog($message . ' Error: ' . $e->getMessage(), 2);
+            $this->logError($e, $message);
         }
 
         $this->context->smarty->compile_check = true;
@@ -263,32 +310,63 @@ class Trustpilot extends Module
         return $this->context->smarty->fetch(_PS_MODULE_DIR_.'trustpilot/views/templates/hook/confirmation.tpl');
     }
 
+    // Let's delete this hook (after checking in prod) if hookActionOrderHistoryAddAfter will cover all invitations plus missing ones
     public function hookPostUpdateOrderStatus($params)
     {
-        if (!$this->active) {
-            Logger::addLog('Trustpilot module: Skipping invitation sending. Module is not active', 2, null, null, null, true);
-            return;
-        }
+        $this->sendBackendInvitation($params, 'postUpdateOrderStatus');
+    }
+    
+    public function hookActionOrderHistoryAddAfter($params)
+    {
+        $newOrderStatus = new OrderState((int) $params['order_history']->id_order_state, (int) $params['cart']->id_lang);
+        $transformedParams = array('newOrderStatus' => $newOrderStatus, 'id_order' => $params['order_history']->id_order);
 
-        if (!$this->isModuleConfigured()) {
-            Logger::addLog('Trustpilot module: Skipping invitation sending. Trustpilot module is not configured.', 2, null, null, null, true);
-            return;
-        }
-
-        $config = Trustpilot_Config::getInstance();
-        $key = $config->getFromMasterSettings('general')->key;
-        $orders = new Trustpilot_Orders($this->context);
-        $invitation = $orders->getInvitation($params, 'postUpdateOrderStatus', false);
-        if (in_array((string)$params['newOrderStatus']->id, $config->getFromMasterSettings('general')->mappedInvitationTrigger)) {
-            $response = $this->httpClient->postInvitation($key, $invitation);
-            if ($response['code'] == __ACCEPTED__) { // request to send products & skus
-                $invitation = $orders->getInvitation($params, 'postUpdateOrderStatus');
-                $response = $this->httpClient->postInvitation($key, $invitation);
+        $this->sendBackendInvitation($transformedParams, 'actionOrderHistoryAddAfter');
+    }
+    
+    public function sendBackendInvitation($params, $hook)
+    {
+        try {
+            if (!$this->active) {
+                Logger::addLog('Trustpilot module: Skipping invitation sending. Module is not active', 2);
+                return;
             }
-            $orders->handleSingleResponse($response, $invitation);
-        } else {
-            $invitation['payloadType'] = 'OrderStatusUpdate';
-            $this->httpClient->postInvitation($key, $invitation);
+
+            if (!$this->isModuleConfigured()) {
+                Logger::addLog('Trustpilot module: Skipping invitation sending. Trustpilot module is not configured.', 2);
+                return;
+            }
+
+            $host = parse_url(_PS_BASE_URL_, PHP_URL_HOST);
+            $code = $this->trustpilotPluginStatus->checkPluginStatus($host);
+            if ($code > 250 && $code < 254) {
+                Logger::addLog('Trustpilot module: Skipping invitation sending from backend. Trustpilot module is disabled.');
+                return;
+            }
+
+            $config = TrustpilotConfig::getInstance();
+            $key = $config->getFromMasterSettings('general')->key;
+            $orders = new TrustpilotOrders($this->context);
+            $invitation = $orders->getInvitation($params, $hook, false);
+            if (in_array((string)$params['newOrderStatus']->id, $config->getFromMasterSettings('general')->mappedInvitationTrigger)) {
+                $response = $this->httpClient->postInvitation($key, $invitation);
+                if ($response['code'] == __ACCEPTED__) { // request to send products & skus
+                    $invitation = $orders->getInvitation($params, 'postUpdateOrderStatus');
+                    $response = $this->httpClient->postInvitation($key, $invitation);
+                }
+                $orders->handleSingleResponse($response, $invitation);
+            } else {
+                $invitation['payloadType'] = 'OrderStatusUpdate';
+                $this->httpClient->postInvitation($key, $invitation);
+            }
+        } catch (\Throwable $e) {
+            $message = 'Trustpilot module: Unable to process order status change event';
+            Logger::addLog($message . ' Error: ' . $e->getMessage(), 3);
+            $this->logError($e, $message);
+        } catch (\Exception $e) {
+            $message = 'Trustpilot module: Unable to process order status change event';
+            Logger::addLog($message . ' Error: ' . $e->getMessage(), 3);
+            $this->logError($e, $message);
         }
     }
 
@@ -297,20 +375,26 @@ class Trustpilot extends Module
         $hooks = array('displayOrderConfirmation', 'displayHeader', 'postUpdateOrderStatus', 'displayBackOfficeHeader');
         foreach ($hooks as $hook) {
             if (!Hook::getIdByName($hook)) {
-                Logger::addLog('Trustpilot module: ' . $hook . ' hook was not found', 2, null, null, null, true);
+                Logger::addLog('Trustpilot module: ' . $hook . ' hook was not found', 2);
                 return false;
             }
             if (!$this->registerHook($hook)) {
-                Logger::addLog('Trustpilot module: Failed to register ' . $hook . ' hook', 2, null, null, null, true);
+                Logger::addLog('Trustpilot module: Failed to register ' . $hook . ' hook', 2);
                 return false;
             }
         }
+
+        // This hook is not listed in hooks table, therefore we just register it without a check
+        if (!$this->registerHook('actionOrderHistoryAddAfter')) {
+            Logger::addLog('Trustpilot module: Failed to register actionOrderHistoryAddAfter hook', 2);
+        }
+
         return true;
     }
 
     private function isModuleConfigured()
     {
-        return $this->isValidLength(Trustpilot_Config::getInstance()->getFromMasterSettings('general')->key, 64);
+        return $this->isValidLength(TrustpilotConfig::getInstance()->getFromMasterSettings('general')->key, 64);
     }
 
     private function isValidLength($value, $maxlength = 254)
@@ -335,5 +419,37 @@ class Trustpilot extends Module
         } else {
             return $this->context->cookie->id_lang;
         }
+    }
+
+    public function logError($e, $description, $optional = array()) {
+        try {
+            $log = array(
+                'error' => $e->getMessage(),
+                'description' => $description,
+                'platform' => 'PrestaShop',
+                'version' => $this->version,
+                'method' => $this->getMethodName($e),
+                'trace' => $e->getTraceAsString(),
+                'variables' => $optional
+            );
+            $this->httpClient->postLog($log);
+        } catch (\Throwable $e) {
+            $exception = 'Trustpilot module: Unable to log error. Error: ' . $e->getMessage();
+            Logger::addLog($exception, 3);
+        } catch (\Exception $e) {
+            $exception = 'Trustpilot module: Unable to log error. Error: ' . $e->getMessage();
+            Logger::addLog($exception, 3);
+        }
+    }
+
+    private function getMethodName($e) {
+        $trace = $e->getTrace();
+        if (array_key_exists(0, $trace)) {
+            $firstNode = $trace[0];
+            if (array_key_exists('function', $firstNode)) {
+                return $firstNode['function'];
+            }
+        }
+        return '';
     }
 }

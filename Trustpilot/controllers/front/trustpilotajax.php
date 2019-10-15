@@ -12,7 +12,7 @@ require_once(dirname(__FILE__) . '/../../../../init.php');
 require_once(dirname(__FILE__) . '/../../trustpilot.php');
 
 
-class trustpilottrustpilotajaxModuleFrontController extends ModuleFrontController
+class TrustpilotTrustpilotAjaxModuleFrontController extends ModuleFrontController
 {
     public function postProcess()
     {
@@ -21,6 +21,8 @@ class trustpilottrustpilotajaxModuleFrontController extends ModuleFrontControlle
 
     public function process()
     {
+        header("Content-Type: application/json");
+
         if (Tools::getIsset('settings')) {
             $settings = base64_decode(Tools::getValue('settings'));
             $queries = array();
@@ -40,7 +42,7 @@ class trustpilottrustpilotajaxModuleFrontController extends ModuleFrontControlle
                     }
                 }
 
-                switch($action) {
+                switch ($action) {
                     case 'save_changes':
                         $trustpilot = new Trustpilot();
                         $result = $trustpilot->handleSaveChanges();
@@ -71,16 +73,21 @@ class trustpilottrustpilotajaxModuleFrontController extends ModuleFrontControlle
                         $plugins = array(
                             array(
                                 'name' => 'trustpilot',
-                                'path' => Trustpilot_Config::getInstance()->plugin_url,
+                                'path' => TrustpilotConfig::getInstance()->plugin_url,
                             )
                         );
-                        Trustpilot_Updater::trustpilotGetPlugins($plugins);
+                        TrustpilotUpdater::trustpilotGetPlugins($plugins);
                         die();
                     case 'reload_trustpilot_settings':
                         $info = new stdClass();
-                        $info->pluginVersion = Trustpilot_Config::getInstance()->version;
+                        $info->pluginVersion = TrustpilotConfig::getInstance()->version;
                         $info->basis = 'plugin';
                         echo json_encode($info);
+                        die();
+                    case 'check_product_skus':
+                        $trustpilot = new Trustpilot();
+                        $result = $trustpilot->checkSkus();
+                        echo $result;
                         die();
                 }
             }
