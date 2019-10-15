@@ -7,17 +7,24 @@
  *  @license   https://opensource.org/licenses/OSL-3.0
  */
 
-class Trustpilot_Trustbox
+include_once TP_PATH_ROOT . '/orders.php';
+
+class TrustpilotTrustbox
 {
     protected static $instance = null;
 
-    public static function getInstance()
+    public static function getInstance($context)
     {
         // If the single instance hasn't been set, set it now.
         if (null == self::$instance) {
-            self::$instance = new self;
+            self::$instance = new self($context);
         }
         return self::$instance;
+    }
+    
+    public function __construct($context)
+    {
+        $this->orders = new TrustpilotOrders($context);
     }
 
     public function isPage($page_name)
@@ -51,23 +58,57 @@ class Trustpilot_Trustbox
     private function loadPageTrustboxes($settings, $page, $langId, $includeSku = false)
     {
         $data = array();
-        $config = Trustpilot_Config::getInstance();
+        $config = TrustpilotConfig::getInstance();
         $skuSelector = $config->getFromMasterSettings('skuSelector');
-        $settingsValue = base64_decode(Tools::getValue('settings'));
-        $queries = array();
-        parse_str($settingsValue, $queries);
-
         foreach ($settings->trustboxes as $trustbox) {
-            if (rtrim($trustbox->page, '/') == $page && $trustbox->enabled == 'enabled') {
+            if ((rtrim($trustbox->page, '/') == $page || $this->checkCustomPage($trustbox->page, $page)) && $trustbox->enabled == 'enabled') {
                 if ($includeSku) {
-                    $product = new Product($queries['id_product'], false, $langId);
-                    $trustbox->sku = $skuSelector != 'none' && $skuSelector != '' ? $product->{$skuSelector} : '';
+                    $product = new Product($this->getProductId(), false, $langId);
+                    $skus = array();
+                    array_push($skus, TRUSTPILOT_PRODUCT_ID_PREFIX . $product->id);
+                    $sku = $this->orders->getAttribute($product, null, 'skuSelector', $langId);
+                    if (isset($sku) && $sku != '') {
+                        array_push($skus, $sku);
+                    }
+                    $combinations = $product->getAttributeCombinations($langId);
+                    if (isset($combinations)) {
+                        foreach ($combinations as $combination) {
+                            array_push($skus, TRUSTPILOT_PRODUCT_ID_PREFIX . $combination['id_product_attribute']);
+                            $sku = $skuSelector != 'none' && $skuSelector != '' && array_key_exists($skuSelector, $combination) ? $combination[$skuSelector] : '';
+                            if (isset($sku) && $sku != '') {
+                                array_push($skus, $sku);
+                            }
+                        }
+                    }
+                    $trustbox->sku = implode(',', array_unique($skus, SORT_STRING));
                     $trustbox->name = $product->name;
                 }
                 array_push($data, $trustbox);
             }
         }
         return $data;
+    }
+
+    private function checkCustomPage($tbPage, $page) {
+        return (
+            $tbPage == strtolower(base64_encode($page . '/')) ||
+            $tbPage == strtolower(base64_encode($page)) ||
+            $tbPage == strtolower(base64_encode(rtrim($page, '/')))
+        );
+    }
+
+    private function getProductId()
+    {
+        $id = Tools::getValue('id_product');
+        if (isset($id)) {
+            return Tools::getValue('id_product');
+        }
+        $settings = base64_decode(Tools::getValue('settings'));
+        $queries = array();
+        parse_str($settings, $queries);
+        if (isset($queries['id_product'])) {
+            return $queries['id_product'];
+        }
     }
 
     private function getCurrentUrl()

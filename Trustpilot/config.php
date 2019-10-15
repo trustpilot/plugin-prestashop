@@ -7,7 +7,9 @@
  *  @license   https://opensource.org/licenses/OSL-3.0
  */
 
-class Trustpilot_Config
+include_once TP_PATH_ROOT . '/globals.php';
+
+class TrustpilotConfig
 {
     protected static $instance = null;
 
@@ -22,21 +24,31 @@ class Trustpilot_Config
     private function __construct()
     {
         $this->settings_prefix        = 'tp_';
-        $this->version                = '2.50.652';
-        $this->plugin_url             = 'https://ecommplugins-pluginrepo.trustpilot.com/prestashop/trustpilot.zip';
-        $this->apiUrl                 = 'https://invitejs.trustpilot.com/api/';
-        $this->script_url             = 'https://invitejs.trustpilot.com/tp.min.js';
-        $this->widget_script_url      = '//widget.trustpilot.com/bootstrap/v5/tp.widget.bootstrap.min.js';
-        $this->preview_script_url     = '//ecommplugins-scripts.trustpilot.com/v2.1/js/preview.js';
-        $this->preview_css_url        = '//ecommplugins-scripts.trustpilot.com/v2.1/css/preview.css';
-        $this->integration_app_url    = '//ecommscript-integrationapp.trustpilot.com';
-        $this->is_from_marketplace    = 'false';
-        $this->trustbox_preview_url   = '//ecommplugins-trustboxpreview.trustpilot.com/v1.0/trustboxpreview.js';
-      }
+        $this->version                = TRUSTPILOT_PLUGIN_VERSION;
+        $this->plugin_url             = TRUSTPILOT_PLUGIN_URL;
+        $this->apiUrl                 = TRUSTPILOT_API_URL;
+        $this->script_url             = TRUSTPILOT_SCRIPT_URL;
+        $this->widget_script_url      = TRUSTPILOT_WIDGET_SCRIPT_URL;
+        $this->preview_script_url     = TRUSTPILOT_PREVIEW_SCRIPT_URL;
+        $this->preview_css_url        = TRUSTPILOT_PREVIEW_CSS_URL;
+        $this->integration_app_url    = TRUSTPILOT_INTEGRATION_APP_URL;
+        $this->is_from_marketplace    = TRUSTPILOT_IS_FROM_MARKETPLACE;
+        $this->trustbox_preview_url   = TRUSTPILOT_TRUSTBOX_PREVIEW_URL;
+    }
 
-    public function getConfigValues($key, $skipCache = false)
+    public function getConfigValues($key, $skipCache = false, $context_scope = Shop::CONTEXT_SHOP)
     {
-        $config = $skipCache ? $this->get($key) : Configuration::get($this->settings_prefix . $key);
+        switch ((int)$context_scope) {
+            case Shop::CONTEXT_ALL:
+                $config = Configuration::getGlobalValue($this->settings_prefix . $key);
+                break;
+            case Shop::CONTEXT_GROUP:
+                $config = Configuration::get($this->settings_prefix . $key, null, null, 0);
+                break;
+            default:
+                $config = $skipCache ? $this->get($key) : Configuration::get($this->settings_prefix . $key);
+                break;
+        }
         return $config ? $config : $this->getDefaultConfigValues($key);
     }
 
@@ -51,7 +63,7 @@ class Trustpilot_Config
             if (method_exists('Shop', 'getContextShopID') && method_exists('Shop', 'getContextShopGroupID')) {
                 $idShop = Shop::getContextShopID(true);
                 $idShopGroup = Shop::getContextShopGroupID(true);
-            } else if (method_exists('Shop', 'retrieveContext')) {
+            } else {
                 $this->getShopFromContext($idShopGroup, $idShop);
             }
 
@@ -68,12 +80,25 @@ class Trustpilot_Config
         return $result ? $result['value'] : false;
     }
 
-    public function setConfigValues($key, $value)
+    public function setConfigValues($key, $value, $context_scope = Shop::CONTEXT_SHOP)
     {
-        if (Configuration::updateValue($this->settings_prefix . $key, $value)) {
-            return $value;
+        switch ((int)$context_scope) {
+            case Shop::CONTEXT_ALL:
+                if (Configuration::updateGlobalValue($this->settings_prefix . $key, $value)) {
+                    return $value;
+                }
+                return false;
+            case Shop::CONTEXT_GROUP:
+                if (Configuration::updateValue($this->settings_prefix . $key, $value, null, (int)Shop::getContextShopGroupID(), 0)) {
+                    return $value;
+                }
+                return false;
+            default:
+                if (Configuration::updateValue($this->settings_prefix . $key, $value)) {
+                    return $value;
+                }
+                return false;
         }
-        return false;
     }
 
     public function getFromMasterSettings($key)
@@ -119,6 +144,12 @@ class Trustpilot_Config
         $config['failed_orders'] = '{}';
         $config['custom_trustboxes'] = '{}';
         $config['page_urls'] = '[]';
+        $config['plugin_status'] = json_encode(
+            array(
+                'pluginStatus' => 200,
+                'blockedDomains' => array(),
+            )
+        );
 
         if ($config[$key]) {
             return $config[$key];
@@ -126,19 +157,52 @@ class Trustpilot_Config
         return false;
     }
 
-    private function getShopFromContext(&$id_group_shop, &$id_shop)
+    public function getConfigurationScopeTree()
     {
-        list($shopID, $shopGroupID) = Shop::retrieveContext();
-        if (is_null($id_shop)) {
-            $id_shop = $shopID;
+        $shopTree = Shop::getTree();
+        $result = array();
+        foreach ($shopTree as $group) {
+            foreach ($group['shops'] as $shop) {
+                if ($shop['active'] == '1') {
+                    $languages = Language::getLanguages(true, $shop['id_shop']);
+                    foreach ($languages as $lang) {
+                        $names = array(
+                            'site' => $group['name'],
+                            'store' => $shop['name'],
+                            'view' => $lang['name'],
+                        );
+                        $item = array(
+                            'ids' => $this->getIdsForConfigurationScope($group['id'], $shop['id_shop'], $lang['id_lang']),
+                            'names' => $names,
+                            'domain' => preg_replace(array('#^https?://#', '#/?$#'), '', $shop['domain']),
+                        );
+                        array_push($result, $item);
+                    }
+                }
+            }
         }
-
-        if (is_null($id_group_shop)) {
-            $id_group_shop = $shopGroupID;
-        }
-
-        $id_shop = (int)$id_shop;
-        $id_group_shop = (int)$id_group_shop;
+        return $result;
     }
 
+    public function getIdsForConfigurationScope($groupId, $shopId, $langId)
+    {
+        return array((string) $groupId, (string) $shopId, (string) $langId);
+    }
+
+    private function getShopFromContext(&$id_group_shop, &$id_shop)
+    {
+        if (method_exists('Shop', 'retrieveContext')) {
+            list($shopID, $shopGroupID) = Shop::retrieveContext();
+            if (is_null($id_shop)) {
+                $id_shop = $shopID;
+            }
+
+            if (is_null($id_group_shop)) {
+                $id_group_shop = $shopGroupID;
+            }
+
+            $id_shop = (int)$id_shop;
+            $id_group_shop = (int)$id_group_shop;
+        }
+    }
 }

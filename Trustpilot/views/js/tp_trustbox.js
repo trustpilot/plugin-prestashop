@@ -7,7 +7,9 @@
  */
 
 if (trustpilot_trustbox_settings) {
-    document.addEventListener('DOMContentLoaded', function() {
+    if (this.document.readyState !== 'loading') {
         tp('trustBox', trustpilot_trustbox_settings);
-    });
+    } else {
+        document.addEventListener('DOMContentLoaded', tp('trustBox', trustpilot_trustbox_settings));
+    }
 }

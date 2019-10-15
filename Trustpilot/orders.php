@@ -14,7 +14,7 @@ if (!defined('TP_PATH_ROOT')) {
 include_once TP_PATH_ROOT . '/config.php';
 include_once TP_PATH_ROOT . '/pastOrders.php';
 
-class Trustpilot_Orders
+class TrustpilotOrders
 {
     public function __construct($context)
     {
@@ -52,20 +52,25 @@ class Trustpilot_Orders
 
         $invitation['recipientEmail'] = $this->getEmail($order);
         $invitation['recipientName'] = $this->getCustomerName($order);
+        $invitation['templateParams'] =
+            TrustpilotConfig::getInstance()->getIdsForConfigurationScope(
+                $this->getGroupId(),
+                $this->getShopId(),
+                $this->getLanguageId()
+            );
 
         if ($collectProductData) {
             $products = $this->getProducts($order);
             $invitation['productSkus'] = $this->getSkus($products);
             $invitation['products'] = $products;
         }
-
         return $invitation;
     }
 
     public function handleSingleResponse($response, $order)
     {
         try {
-            $past_orders = new Trustpilot_PastOrders($this->context);
+            $past_orders = new TrustpilotPastOrders($this->context);
             $synced_orders = (int)$past_orders->getTrustpilotField('past_orders');
             $failed_orders = json_decode($past_orders->getTrustpilotField('failed_orders'));
 
@@ -80,9 +85,14 @@ class Trustpilot_Orders
                 $failed_orders->{$order['referenceId']} = base64_encode('Automatic invitation sending failed');
                 $past_orders->setTrustpilotField('failed_orders', json_encode($failed_orders));
             }
-        } catch (Exception $e) {
-            $message = 'Unable to update past orders. Error: ' . $e->getMessage();
-            Logger::addLog($message, 2);
+        } catch (\Throwable $e) {
+            $message = 'Unable to update past orders';
+            Logger::addLog($message . ' Error: ' . $e->getMessage(), 2);
+            Module::getInstanceByName('trustpilot')->logError($e, $message);
+        } catch (\Exception $e) {
+            $message = 'Unable to update past orders';
+            Logger::addLog($message . ' Error: ' . $e->getMessage(), 2);
+            Module::getInstanceByName('trustpilot')->logError($e, $message);
         }
     }
 
@@ -91,7 +101,7 @@ class Trustpilot_Orders
         return array(
             'referenceId' => $orderReference,
             'source' => 'PrestaShop-'._PS_VERSION_,
-            'pluginVersion' => Trustpilot_Config::getInstance()->version,
+            'pluginVersion' => TrustpilotConfig::getInstance()->version,
             'orderStatusId' => $orderStatusId,
             'orderStatusName' => $orderStatusName,
             'hook' => $hook
@@ -100,36 +110,76 @@ class Trustpilot_Orders
 
     private function getProducts($order)
     {
-        $config = Trustpilot_Config::getInstance();
         $products_array = array();
         $products = $order->getProducts();
-        $id_lang = $this->context->language->id;
+        $id_lang = (int)$this->context->language->id;
         foreach ($products as $p) {
-            $skuSelector = $config->getFromMasterSettings('skuSelector');
-            $gtinSelector = $config->getFromMasterSettings('gtinSelector');
-            $mpnSelector = $config->getFromMasterSettings('mpnSelector');
-            $sku = $skuSelector != 'none' && $skuSelector != '' ? $p[$skuSelector] : '';
-            $gtin =  $gtinSelector != 'none' && $gtinSelector != '' && !empty($p[$gtinSelector]) ? $p[$gtinSelector] : '';
-            $mpn = $mpnSelector != 'none' && $mpnSelector != '' && !empty($p[$mpnSelector]) ? $p[$mpnSelector] : '';
-            $product = new Product((int)$p['id_product'], true, (int)$id_lang);
+            $product = new Product((int)$p['id_product'], true, $id_lang);
+            $combinations = (isset($p['product_attribute_id']))
+                ? $product->getAttributeCombinationsById((int)$p['product_attribute_id'], $id_lang)
+                : array();
+            $combination = count($combinations) > 0 ? (object) $combinations[0] : null;
             $image = Image::getCover((int)$p['id_product']);
             $product_link = $product->getLink();
             $image_url = $this->context->link->getImageLink($product->link_rewrite, $image['id_image']);
+            $currency = new CurrencyCore($order->id_currency);
+            $description = !empty($product->description) ? $product->description : $product->description_short;
+            $images = $this->getProductImages($product, $combination, $id_lang);
+            $productId = isset($combination) ? $p['product_attribute_id'] : $p['id_product'];
             array_push(
                 $products_array,
                 array(
+                    'productId' => $productId,
                     'productUrl' => $product_link,
                     'name' => $product->name,
                     'brand' => !empty($product->manufacturer_name) ? $product->manufacturer_name : '',
-                    'sku' => $sku,
-                    'gtin' => $gtin,
-                    'mpn' => $mpn,
+                    'sku' => $this->getAttribute($product, $combination, 'skuSelector', $id_lang),
+                    'gtin' => $this->getAttribute($product, $combination, 'gtinSelector', $id_lang),
+                    'mpn' => $this->getAttribute($product, $combination, 'mpnSelector', $id_lang),
                     'imageUrl' => $image_url,
+
+                    'price' => number_format($product->getPrice(), 2),
+                    'currency' => $currency->iso_code,
+                    'categories' => $this->getProductCategories($product),
+                    'description' => strip_tags($description),
+                    'images' => $images,
+                    'videos' => null,
+                    'tags' => explode(',', $product->getTags($id_lang)),
+                    'meta' => array(
+                        'title' => !empty($product->meta_title) ? $product->meta_title : $product->name,
+                        'description' => $product->meta_description,
+                        'keywords' => $product->meta_keywords,
+                    ),
+                    'manufacturer' => $product->manufacturer_name ? (string)($product->manufacturer_name) : null,
                 )
             );
         }
 
         return $products_array;
+    }
+
+    public function getAttribute($product, $combination, $attr, $id_lang, $useDbField = true)
+    {
+        $selector = $useDbField ? TrustpilotConfig::getInstance()->getFromMasterSettings($attr) : $attr;
+        if ($selector == 'none' || $selector == '') {
+            return '';
+        }
+
+        if (isset($combination) && !empty($combination->{$selector})) {
+            return $combination->{$selector};
+        }
+        
+        if (!empty($product->{$selector})) {
+            return $product->{$selector};
+        }
+
+        $features = $product->getFrontFeatures($id_lang);
+        foreach ($features as $feature) {
+            if ($feature['name'] == $selector) {
+                return $feature['value'];
+            }
+        }
+        return '';
     }
 
     private function getEmail($order)
@@ -152,9 +202,42 @@ class Trustpilot_Orders
                 WHERE `id_order` = \''.$id_order.'\'';
                 $email = Db::getInstance()->getValue($sql);
                 return $email;
-            } catch (Exception $e) {
+            } catch (\Throwable $e) {
+                $message = 'Failed to get customer email';
+                Module::getInstanceByName('trustpilot')->logError($e, $message);
+                return false;
+            } catch (\Exception $e) {
+                $message = 'Failed to get customer email';
+                Module::getInstanceByName('trustpilot')->logError($e, $message);
                 return false;
             }
+        }
+    }
+
+    private function getGroupId()
+    {
+        if (!empty($this->context->shop) && !empty($this->context->shop->id_shop_group)) {
+            return $this->context->shop->id_shop_group;
+        } else {
+            return $this->context->cookie->id_shop_group;
+        }
+    }
+
+    private function getShopId()
+    {
+        if (!empty($this->context->shop) && !empty($this->context->shop->id)) {
+            return $this->context->shop->id;
+        } else {
+            return $this->context->cookie->id_shop;
+        }
+    }
+
+    private function getLanguageId()
+    {
+        if (!empty($this->context->language) && !empty($this->context->language->id)) {
+            return $this->context->language->id;
+        } else {
+            return $this->context->cookie->id_lang;
         }
     }
 
@@ -177,5 +260,56 @@ class Trustpilot_Orders
             array_push($skus, $product['sku']);
         }
         return $skus;
+    }
+
+    private function getProductCategories($product)
+    {
+        $categories = array();
+        $productCategoriesFull = $product->getProductCategoriesFull($product->id);
+        foreach ($productCategoriesFull as $category) {
+            array_push($categories, $category['name']);
+        }
+        return $categories;
+    }
+
+
+    // For backward compatibility with PS < 1.7.0.0
+    // Ref: https://github.com/PrestaShop/PrestaShop/blob/develop/classes/ImageType.php#L174
+    private function getFormattedName($name) {
+        if (method_exists("ImageType", "getFormattedName")) {
+            return ImageType::getFormattedName($name);
+        } else {
+            return ImageType::getFormatedName($name);
+        }
+    }
+
+    private function getProductImages($product, $combination, $id_lang)
+    {
+        $images = array();
+        $productImages = array();
+
+        // Get link object with the protocol
+        $protocol_link = (Configuration::get('PS_SSL_ENABLED') || Tools::usingSecureMode()) ? 'https://' : 'http://';
+        $useSSL = ((isset($this->ssl) && $this->ssl && Configuration::get('PS_SSL_ENABLED')) || Tools::usingSecureMode()) ? true : false;
+        $protocol_content = ($useSSL) ? 'https://' : 'http://';
+        $link = new Link($protocol_link, $protocol_content);
+
+        if ($combination) {
+            $combinations = $product->getCombinationImages($id_lang);
+            foreach ((array) $combinations as $combinationImages) {
+                if ($combination->id_product_attribute == $combinationImages[0]['id_product_attribute']) {
+                    $productImages = $combinationImages;
+                    break;
+                }
+            }
+        } else {
+            $productImages = $product->getImages($id_lang);
+        }
+
+        foreach ($productImages as $image) {
+            $imagePath = $link->getImageLink($product->link_rewrite, $image['id_image'], $this->getFormattedName('home'));
+            array_push($images, $imagePath);
+        }
+        return $images;
     }
 }

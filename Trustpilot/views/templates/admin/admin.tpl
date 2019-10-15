@@ -5,11 +5,12 @@
 *  @copyright Trustpilot
 *  @license   https://opensource.org/licenses/OSL-3.0
 *}
-{literal}<div>
+{literal}<div tabindex="0" style="outline: none">
     <script type="text/javascript" data-keepinline="true">
         let trustpilot_integration_app_url = '{/literal}{$integration_app_url}{literal}';
         let user_id = '{/literal}{$user_id}{literal}';
         let ajax_url = urlWithoutProtocol();
+        let context_scope = '{/literal}{$context_scope}{literal}';
 
         function urlWithoutProtocol() {
             let url = '{/literal}{$ajax_url}{literal}';
@@ -18,6 +19,19 @@
         }
     </script>
     <script type="text/javascript" src="{/literal}{$admin_js_dir}{literal}"></script>
+    <script type="text/javascript" data-keepinline="true">
+        function onTrustpilotIframeLoad() {
+            if (typeof sendSettings === "function" && typeof sendPastOrdersInfo === "function") {
+                sendSettings();
+                sendPastOrdersInfo();
+            } else {
+                window.addEventListener('load', function () {
+                    sendSettings();
+                    sendPastOrdersInfo();
+                });
+            }
+        }
+    </script>
     <fieldset id="trustpilot_signup">
         <iframe
             src='{/literal}{$integration_app_url}{literal}'
@@ -36,7 +50,9 @@
             data-settings='{/literal}{$settings}{literal}'
             data-product-identification-options='{/literal}{$product_identification_options}{literal}'
             data-is-from-marketplace='{/literal}{$is_from_marketplace}{literal}'
-            onload='sendSettings(); sendPastOrdersInfo();'>
+            data-configuration-scope-tree='{/literal}{$configuration_scope_tree}{literal}'
+            data-plugin-status='{/literal}{$plugin_status}{literal}'
+            onload='onTrustpilotIframeLoad();'>
         </iframe>
         <div id='trustpilot-trustbox-preview'
             hidden='true'

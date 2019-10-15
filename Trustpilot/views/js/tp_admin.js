@@ -18,6 +18,11 @@ function receiveSettings(e) {
         return;
     }
     const data = e.data;
+    
+    if (typeof data !== 'string') {
+        return;
+    }
+
     if (data.startsWith('sync:')) {
         const split = data.split(':');
         const action = {};
@@ -40,12 +45,16 @@ function receiveSettings(e) {
         action['action'] = 'show_past_orders_initial';
         action[split[0]] = split[1];
         this.submitPastOrdersCommand(action);
+    } else if (data.startsWith('check_product_skus')) {
+        const split = data.split(':');
+        const action = {};
+        action['action'] = 'check_product_skus';
+        action['skuSelector'] = split[1];
+        this.submitCheckProductSkusCommand(action);
     } else if (data === 'update') {
-        updateplugin();
+        this.updateplugin();
     } else if (data === 'reload') {
-        reloadSettings();
-    } else if (data && JSON.parse(data).TrustBoxPreviewMode) {
-        TrustBoxPreviewMode(data);
+        this.reloadSettings();
     } else {
         this.handleJSONMessage(data);
     }
@@ -53,30 +62,31 @@ function receiveSettings(e) {
 
 function receiveInternalData(e) {
     const data = e.data;
-    if (data && typeof data === 'string') {
-        const jsonData = JSON.parse(data);
-        if (jsonData) {
-            if (jsonData.type == 'newTrustBox' || jsonData.type === 'updatePageUrls') {
-                submitSettings(jsonData);
-            }
+    const parsedData = {};
+    if (data && typeof data === 'string' && tryParseJson(data, parsedData)) {
+        if (parsedData.type == 'newTrustBox' || parsedData.type === 'updatePageUrls') {
+            submitSettings(parsedData);
         }
     }
 }
 
 function handleJSONMessage(data) {
-    const parsedData = JSON.parse(data);
-    if (parsedData.window) {
-        this.updateIframeSize(parsedData);
-    } else if (parsedData.type === 'submit') {
-        this.submitSettings(parsedData);
-    } else if (parsedData.trustbox) {
-        const iframe = document.getElementById('trustbox_preview_frame');
-        iframe.contentWindow.postMessage(JSON.stringify(parsedData.trustbox), "*");
+    const parsedData = {};
+    if (tryParseJson(data, parsedData)) {
+        if (parsedData.TrustBoxPreviewMode) {
+            this.trustBoxPreviewMode(parsedData);
+        } else if (parsedData.window) {
+            this.updateIframeSize(parsedData);
+        } else if (parsedData.type === 'submit') {
+            this.submitSettings(parsedData);
+        } else if (parsedData.trustbox) {
+            const iframe = document.getElementById('trustbox_preview_frame');
+            iframe.contentWindow.postMessage(JSON.stringify(parsedData.trustbox), "*");
+        }
     }
 }
 
-function TrustBoxPreviewMode(data) {
-    const settings = JSON.parse(data);
+function trustBoxPreviewMode(settings) {
     const div = document.getElementById('trustpilot-trustbox-preview');
     if (settings.TrustBoxPreviewMode.enable) {
         div.hidden = false;
@@ -101,6 +111,28 @@ function submitPastOrdersCommand(data) {
     data.token = token;
     data.controller = controller;
     data.user_id = user_id;
+    data.context_scope = context_scope;
+    xhr.send('settings=' + btoa(encodeSettings(data)));
+}
+
+function submitCheckProductSkusCommand(data) {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', ajax_url);
+    xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+    xhr.onreadystatechange = function () {
+        if (xhr.readyState === 4) {
+            if (xhr.status >= 400) {
+                console.log(`callback error: ${xhr.response} ${xhr.status}`);
+            } else {
+                const iframe = document.getElementById('configuration_iframe');
+                iframe.contentWindow.postMessage(xhr.response, iframe.dataset.transfer);
+            }
+        }
+    };
+    data.token = token;
+    data.controller = controller;
+    data.user_id = user_id;
+    data.context_scope = context_scope;
     xhr.send('settings=' + btoa(encodeSettings(data)));
 }
 
@@ -109,7 +141,8 @@ function updateplugin() {
         action: 'update_trustpilot_plugin',
         token: token,
         controller: controller,
-        user_id: user_id
+        user_id: user_id,
+        context_scope: context_scope,
     };
     const xhr = new XMLHttpRequest();
     xhr.open('POST', ajax_url);
@@ -122,7 +155,8 @@ function reloadSettings() {
         action: 'reload_trustpilot_settings',
         token: token,
         controller: controller,
-        user_id: user_id
+        user_id: user_id,
+        context_scope: context_scope,
     };
     const xhr = new XMLHttpRequest();
     xhr.open('POST', ajax_url);
@@ -157,7 +191,8 @@ function submitSettings(parsedData) {
         action: 'save_changes',
         token: token,
         controller: controller,
-        user_id: user_id
+        user_id: user_id,
+        context_scope: context_scope,
     };
 
     if (parsedData.type === 'updatePageUrls') {
@@ -208,6 +243,7 @@ function sendSettings() {
     settings.basis = 'plugin';
     settings.productIdentificationOptions = JSON.parse(attrs.productIdentificationOptions);
     settings.isFromMarketplace = attrs.isFromMarketplace;
+    settings.configurationScopeTree = JSON.parse(atob(attrs.configurationScopeTree));
 
     if (settings.trustbox.trustboxes && attrs.sku) {
         for (trustbox of settings.trustbox.trustboxes) {
@@ -239,4 +275,13 @@ function getTokenAndController() {
 
     if (typeof help_class_name != 'undefined')
         controller = help_class_name;
+}
+
+function tryParseJson(str, out) {
+    try {
+        out = Object.assign(out, JSON.parse(str));
+    } catch (e) {
+        return false;
+    }
+    return true;
 }
