@@ -52,12 +52,11 @@ class TrustpilotOrders
 
         $invitation['recipientEmail'] = $this->getEmail($order);
         $invitation['recipientName'] = $this->getCustomerName($order);
-        $invitation['templateParams'] =
-            TrustpilotConfig::getInstance()->getIdsForConfigurationScope(
-                $this->getGroupId(),
-                $this->getShopId(),
-                $this->getLanguageId()
-            );
+        $invitation['templateParams'] = TrustpilotConfig::getInstance()->getIdsForConfigurationScope(
+            $order->id_shop_group,
+            $order->id_shop,
+            $order->id_lang
+        );
 
         if ($collectProductData) {
             $products = $this->getProducts($order);
@@ -141,7 +140,7 @@ class TrustpilotOrders
                     'price' => number_format($product->getPrice(), 2),
                     'currency' => $currency->iso_code,
                     'categories' => $this->getProductCategories($product),
-                    'description' => strip_tags($description),
+                    'description' => html_entity_decode($this->stripAllTags($description, true)),
                     'images' => $images,
                     'videos' => null,
                     'tags' => explode(',', $product->getTags($id_lang)),
@@ -211,33 +210,6 @@ class TrustpilotOrders
                 Module::getInstanceByName('trustpilot')->logError($e, $message);
                 return false;
             }
-        }
-    }
-
-    private function getGroupId()
-    {
-        if (!empty($this->context->shop) && !empty($this->context->shop->id_shop_group)) {
-            return $this->context->shop->id_shop_group;
-        } else {
-            return $this->context->cookie->id_shop_group;
-        }
-    }
-
-    private function getShopId()
-    {
-        if (!empty($this->context->shop) && !empty($this->context->shop->id)) {
-            return $this->context->shop->id;
-        } else {
-            return $this->context->cookie->id_shop;
-        }
-    }
-
-    private function getLanguageId()
-    {
-        if (!empty($this->context->language) && !empty($this->context->language->id)) {
-            return $this->context->language->id;
-        } else {
-            return $this->context->cookie->id_lang;
         }
     }
 
@@ -311,5 +283,18 @@ class TrustpilotOrders
             array_push($images, $imagePath);
         }
         return $images;
+    }
+
+    private function stripAllTags($string, $remove_breaks = false)
+    {
+        if (gettype($string) != 'string') {
+            return '';
+        }
+        $string = preg_replace('@<(script|style)[^>]*?>.*?</\\1>@si', '', $string);
+        $string = strip_tags($string);
+        if ($remove_breaks) {
+            $string = preg_replace('/[\r\n\t ]+/', ' ', $string);
+        }
+        return trim($string);
     }
 }

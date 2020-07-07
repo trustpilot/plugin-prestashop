@@ -7,7 +7,6 @@
  *}
 {literal}
 <script type="text/javascript" data-keepinline="true">
-    var trustpilot_invitation = {/literal}{$invitation|@json_encode nofilter}{literal};
+    window.trustpilot_trustbox_settings = {/literal}{$trustbox_settings|@json_encode nofilter}{literal};
 </script>
-<script type="text/javascript" src="{/literal}{$invite_js_dir}{literal}"></script>
 {/literal}

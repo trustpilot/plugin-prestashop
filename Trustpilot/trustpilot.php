@@ -55,7 +55,7 @@ class Trustpilot extends Module
 
         parent::__construct();
         $this->displayName = $this->l('Trustpilot reviews');
-        $this->version = '2.50.762';
+        $this->version = '2.50.809';
         $this->description = $this->l('The Trustpilot Review extension makes it simple and easy for merchants to collect reviews from their customers to power their marketing efforts, increase sales conversion, build their online reputation and draw business insights.');
         $this->confirmUninstall = $this->l('Are you sure you want to uninstall?');
     }
@@ -87,7 +87,7 @@ class Trustpilot extends Module
 
     public function hookDisplayBackOfficeHeader($params)
     {
-            $this->context->controller->addCSS($this->_path . 'views/css/menuTabIcon.css');
+            $this->context->controller->addCSS($this->_path . 'views/css/menuTabIcon.min.css');
     }
 
     public function uninstallTabs()
@@ -191,6 +191,17 @@ class Trustpilot extends Module
         return json_encode($info);
     }
 
+    public function updateProductList()
+    {
+        $settings = base64_decode(Tools::getValue('settings'));
+        $queries = array();
+        parse_str($settings, $queries);
+
+        $trustbox = TrustpilotTrustbox::getInstance($this->context);
+        $data = $trustbox->loadCategoryProductData($queries['products'], $this->getLanguageId());
+        return $data;
+    }
+
     public function enable($force_all = false)
     {
         parent::enable($force_all);
@@ -236,7 +247,7 @@ class Trustpilot extends Module
             return;
         }
 
-        $config = TrustpilotConfig::getInstance();
+        $config = TrustpilotConfig::getInstance(); 
         $trustbox = TrustpilotTrustbox::getInstance($this->context);
         $trustbox_settings = $config->getFromMasterSettings('trustbox');
         $this->context->smarty->compile_check = true;
@@ -248,14 +259,40 @@ class Trustpilot extends Module
                 'preview_script_url' => $config->preview_script_url,
                 'preview_css_url' => $config->preview_css_url,
                 'integration_app_url' => $this->getDomainName($config->integration_app_url),
+                'register_js_dir' => __ASSETS_JS_DIR__ . '/tp_register.min.js',
+                'trustbox_js_dir' => __ASSETS_JS_DIR__ . '/tp_trustbox.min.js',
+                'preview_js_dir' => __ASSETS_JS_DIR__ . '/tp_preview.min.js',
+                'trustpilot_ajax_url' => $this->context->link->getModuleLink('trustpilot', 'trustpilotajax'),
                 'trustbox_settings' => $trustbox->loadTrustboxes($trustbox_settings, $this->getLanguageId()),
-                'register_js_dir' => __ASSETS_JS_DIR__ . '/tp_register.js',
-                'trustbox_js_dir' => __ASSETS_JS_DIR__ . '/tp_trustbox.js',
-                'preview_js_dir' => __ASSETS_JS_DIR__ . '/tp_preview.js',
+                'user_id' => (int)$this->context->customer->id,
             )
         );
 
         return $this->context->smarty->fetch(_PS_MODULE_DIR_.'trustpilot/views/templates/hook/head.tpl');
+    }
+
+    public function hookDisplayBeforeBodyClosingTag($params)
+    {
+        if (!$this->active) {
+            Logger::addLog('Trustpilot module: Skipping trustpilot script rendering. Module is not active', 2);
+            return;
+        }
+
+        $config = TrustpilotConfig::getInstance();
+        $trustbox = TrustpilotTrustbox::getInstance($this->context);
+        $trustbox_settings = $config->getFromMasterSettings('trustbox');
+        $this->context->smarty->compile_check = true;
+        $this->context->smarty->assign(
+            array(
+                'trustbox_settings' => $trustbox->loadTrustboxes($trustbox_settings, $this->getLanguageId()),
+            )
+        );
+        return $this->context->smarty->fetch(_PS_MODULE_DIR_.'trustpilot/views/templates/hook/bottom.tpl');
+    }
+
+    public function hookDisplayFooter($params)
+    {
+        return $this->hookDisplayBeforeBodyClosingTag($params);
     }
 
     public function hookDisplayOrderConfirmation($params)
@@ -303,7 +340,7 @@ class Trustpilot extends Module
         $this->context->smarty->assign(
             array(
                 'invitation' => $invitation,
-                'invite_js_dir' => __ASSETS_JS_DIR__ . '/tp_invite.js',
+                'invite_js_dir' => __ASSETS_JS_DIR__ . '/tp_invite.min.js',
             )
         );
 
@@ -370,9 +407,23 @@ class Trustpilot extends Module
         }
     }
 
+    public function hookFilterProductSearch($params)
+    {
+        $products = $params['searchVariables']['products'];
+        $productIds = array_map(function($item) {
+            return $item['id_product'];
+        }, $products);
+
+        $trustbox = TrustpilotTrustbox::getInstance($this->context);
+        $trustbox->setProducts(json_encode($productIds), $this->getLanguageId());
+    }
+
     private function registerHooks()
     {
-        $hooks = array('displayOrderConfirmation', 'displayHeader', 'postUpdateOrderStatus', 'displayBackOfficeHeader');
+        $common_hooks = array('displayOrderConfirmation', 'displayHeader', 'postUpdateOrderStatus', 'displayBackOfficeHeader');
+        $hooks_v17 = array('displayBeforeBodyClosingTag', 'filterProductSearch'); // v1.7 +
+        $hooks_v16 = array('displayFooter');                                      // v1.6 and older
+        $hooks = array_merge($common_hooks, version_compare(_PS_VERSION_, '1.7', '<') ? $hooks_v16 : $hooks_v17);
         foreach ($hooks as $hook) {
             if (!Hook::getIdByName($hook)) {
                 Logger::addLog('Trustpilot module: ' . $hook . ' hook was not found', 2);
@@ -385,7 +436,7 @@ class Trustpilot extends Module
         }
 
         // This hook is not listed in hooks table, therefore we just register it without a check
-        if (!$this->registerHook('actionOrderHistoryAddAfter')) {
+        if ($this->registerHook('actionOrderHistoryAddAfter') === null) {
             Logger::addLog('Trustpilot module: Failed to register actionOrderHistoryAddAfter hook', 2);
         }
 

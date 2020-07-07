@@ -13,6 +13,8 @@ class TrustpilotTrustbox
 {
     protected static $instance = null;
 
+    protected $products;
+
     public static function getInstance($context)
     {
         // If the single instance hasn't been set, set it now.
@@ -33,6 +35,11 @@ class TrustpilotTrustbox
         return $controller_name == $page_name;
     }
 
+    public function setProducts($productIds, $langId)
+    {
+        $this->products = $this->loadCategoryProductData($productIds, $langId);
+    }
+
     public function loadTrustboxes($settings, $langId)
     {
         if ($settings->trustboxes) {
@@ -44,6 +51,9 @@ class TrustpilotTrustbox
             }
             if ($this->isPage('category')) {
                 $loadedTrustboxes = array_merge((array)$this->loadPageTrustboxes($settings, 'category', $langId), (array)$loadedTrustboxes);
+                if ($this->repeatData($loadedTrustboxes)) {
+                    $settings->categoryProductsData = $this->products;
+                }
             }
             if ($this->isPage('index')) {
                 $loadedTrustboxes = array_merge((array)$this->loadPageTrustboxes($settings, 'landing', $langId), (array)$loadedTrustboxes);
@@ -53,6 +63,52 @@ class TrustpilotTrustbox
                 return $settings;
             }
         }
+        $settings->trustboxes = array();
+        return $settings;
+    }
+
+    private function repeatData($trustBoxes) {
+        foreach ($trustBoxes as $trustbox) {
+            if (property_exists($trustbox, 'repeat') && $trustbox->repeat) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public function loadCategoryProductData($productIds, $langId)
+    {
+        $config = TrustpilotConfig::getInstance();
+        $skuSelector = $config->getFromMasterSettings('skuSelector');
+        $productList = array();
+        foreach (json_decode($productIds) as $productId) {
+            $variationSkus = $variationIds = array();
+            $product = new Product($productId, false, $langId);
+            
+            $id = $product->id;
+            $sku = $this->orders->getAttribute($product, null, 'skuSelector', $langId);
+            
+            $combinations = $product->getAttributeCombinations($langId);            
+            if (isset($combinations)) {
+                foreach ($combinations as $combination) {
+                    array_push($variationIds, $combination['id_product_attribute']);
+                    $sku = $skuSelector != 'none' && $skuSelector != '' && array_key_exists($skuSelector, $combination) ? $combination[$skuSelector] : '';
+                    if (isset($sku) && $sku != '') {
+                        array_push($variationSkus, $sku);
+                    }
+                }
+            }
+            array_push($productList, array(
+                "sku" => $sku,
+                "id" => $id,
+                "variationIds" => $variationIds,
+                "variationSkus" => $variationSkus,
+                "productUrl" => $product->getLink() ?: '',
+                "name" => $product->name,
+            ));
+        }
+
+        return $productList;
     }
 
     private function loadPageTrustboxes($settings, $page, $langId, $includeSku = false)

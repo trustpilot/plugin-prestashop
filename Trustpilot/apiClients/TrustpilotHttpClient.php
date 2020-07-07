@@ -22,9 +22,12 @@ class TrustpilotHttpClient
     public function post($url, $data)
     {
         $httpRequest = "POST";
+        $origin = (Tools::usingSecureMode() && Configuration::get('PS_SSL_ENABLED')) ? _PS_BASE_URL_SSL_ : _PS_BASE_URL_;
+
         $response = $this->request(
             $url,
             $httpRequest,
+            $origin,
             $data
         );
 
@@ -79,10 +82,10 @@ class TrustpilotHttpClient
         return $this->post($url, $data);
     }
 
-    public function request($url, $httpRequest, $data = null, $params = array(), $timeout = self::HTTP_REQUEST_TIMEOUT)
+    public function request($url, $httpRequest, $origin, $data = null, $params = array(), $timeout = self::HTTP_REQUEST_TIMEOUT)
     {
         $ch = curl_init();
-        $this->setCurlOptions($ch, $httpRequest, $data, $timeout);
+        $this->setCurlOptions($ch, $httpRequest, $data, $timeout, $origin);
         $url = $this->buildParams($url, $params);
         curl_setopt($ch, CURLOPT_URL, $url);
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
@@ -117,7 +120,7 @@ class TrustpilotHttpClient
         }
     }
 
-    private function setCurlOptions($ch, $httpRequest, $data, $timeout)
+    private function setCurlOptions($ch, $httpRequest, $data, $timeout, $origin)
     {
         curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, $timeout);
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
@@ -127,7 +130,7 @@ class TrustpilotHttpClient
             curl_setopt($ch, CURLOPT_HTTPHEADER, array(
                 'content-type: application/json',
                 'Content-Length: ' . strlen($encoded_data),
-                'Origin: ' . _PS_BASE_URL_,
+                'Origin: ' . $origin,
             ));
             curl_setopt($ch, CURLOPT_POSTFIELDS, $encoded_data);
         } elseif ($httpRequest == 'GET') {

@@ -14,14 +14,28 @@ require_once(dirname(__FILE__) . '/../../trustpilot.php');
 
 class TrustpilotTrustpilotAjaxModuleFrontController extends ModuleFrontController
 {
+    private $excludedActions = array('get_category_product_info', 'reload_trustpilot_settings');
+
     public function postProcess()
     {
         $this->process();
     }
 
+    public function validateToken($action, $queries) {
+        $token = Tools::getAdminToken(
+            $queries['controller'].
+            (int)Tab::getIdFromClassName($queries['controller']).
+            (int)$queries['user_id']
+        );
+        if (Configuration::get('PS_TOKEN_ENABLE') == 1 && !($token == $queries['token'])) {
+            echo 'Invalid token!';
+            die();
+        }
+    }
+
     public function process()
     {
-        header("Content-Type: application/json");
+        header('Content-Type: application/json');
 
         if (Tools::getIsset('settings')) {
             $settings = base64_decode(Tools::getValue('settings'));
@@ -30,18 +44,10 @@ class TrustpilotTrustpilotAjaxModuleFrontController extends ModuleFrontControlle
 
             if (isset($queries["action"])) {
                 $action = $queries["action"];
-                if ($action !== 'reload_trustpilot_settings') {
-                    $token = Tools::getAdminToken(
-                        $queries['controller'].
-                        (int)Tab::getIdFromClassName($queries['controller']).
-                        (int)$queries['user_id']
-                    );
-                    if (Configuration::get('PS_TOKEN_ENABLE') == 1 && !($token == $queries['token'])) {
-                        echo 'Invalid token!';
-                        die();
-                    }
+                if (!in_array($action, $this->excludedActions)) {
+                    $this->validateToken($action, $queries);
                 }
-
+                
                 switch ($action) {
                     case 'save_changes':
                         $trustpilot = new Trustpilot();
@@ -88,6 +94,12 @@ class TrustpilotTrustpilotAjaxModuleFrontController extends ModuleFrontControlle
                         $trustpilot = new Trustpilot();
                         $result = $trustpilot->checkSkus();
                         echo $result;
+                        die();
+                    case 'get_category_product_info':
+                        $result = new stdClass();
+                        $trustpilot = new Trustpilot();
+                        $result->categoryProductsData = $trustpilot->updateProductList();
+                        echo json_encode($result);
                         die();
                 }
             }

@@ -14,6 +14,7 @@ if (!defined('TP_PATH_ROOT')) {
 include_once TP_PATH_ROOT . '/config.php';
 include_once TP_PATH_ROOT . '/pastOrders.php';
 include_once TP_PATH_ROOT . '/orders.php';
+include_once TP_PATH_ROOT . '/trustpilot.php';
 
 class TrustpilotViewLoader
 {
@@ -44,14 +45,14 @@ class TrustpilotViewLoader
             'integration_app_url' => $this->getDomainName($config->integration_app_url),
             'page_urls' => $page_urls,
             'custom_trustboxes' => $custom_trustboxes,
-            'admin_js_dir' => __ASSETS_JS_DIR__ . '/tp_admin.js',
+            'admin_js_dir' => __ASSETS_JS_DIR__ . '/tp_admin.min.js',
             'product_identification_options' => $this->getProductIdentificationOptions(),
             'is_from_marketplace' => $config->is_from_marketplace,
             'user_id' => (int)$this->context->employee->id,
             'starting_url' => $this->context->link->getPageLink('index', true),
             'trustbox_preview_url' => $config->trustbox_preview_url,
             'configuration_scope_tree' => base64_encode(json_encode($config->getConfigurationScopeTree())),
-            'ajax_url' => $this->context->link->getModuleLink('trustpilot', 'trustpilotajax'),
+            'trustpilot_ajax_url' => $this->context->link->getModuleLink('trustpilot', 'trustpilotajax'),
             'context_scope' => Shop::getContext(),
             'plugin_status' => base64_encode($config->getConfigValues('plugin_status')),
         );

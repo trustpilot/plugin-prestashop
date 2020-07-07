@@ -9,11 +9,11 @@
     <script type="text/javascript" data-keepinline="true">
         let trustpilot_integration_app_url = '{/literal}{$integration_app_url}{literal}';
         let user_id = '{/literal}{$user_id}{literal}';
-        let ajax_url = urlWithoutProtocol();
+        let trustpilot_ajax_url = urlWithoutProtocol();
         let context_scope = '{/literal}{$context_scope}{literal}';
 
         function urlWithoutProtocol() {
-            let url = '{/literal}{$ajax_url}{literal}';
+            let url = '{/literal}{$trustpilot_ajax_url}{literal}';
             url = url.replace(/(^\w+:|^)/, '');
             return url;
         }
@@ -66,4 +66,5 @@
         </div>
     </fieldset>
     <script src='{/literal}{$trustbox_preview_url}{literal}' id='TrustBoxPreviewComponent'></script>
-</div>{/literal}
+</div>
+{/literal}

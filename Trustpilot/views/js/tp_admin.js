@@ -67,6 +67,9 @@ function receiveInternalData(e) {
         if (parsedData.type == 'newTrustBox' || parsedData.type === 'updatePageUrls') {
             submitSettings(parsedData);
         }
+        if (parsedData.type === 'loadCategoryProductInfo') {
+            requestCategoryInfo();
+        }
     }
 }
 
@@ -86,6 +89,29 @@ function handleJSONMessage(data) {
     }
 }
 
+function requestCategoryInfo() {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', trustpilot_ajax_url);
+    xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+    xhr.onreadystatechange = function () {
+        if (xhr.readyState === 4) {
+            if (xhr.status >= 400) {
+                console.log(`callback error: ${xhr.response} ${xhr.status}`);
+            } else {
+                window.postMessage(xhr.response, window.origin);
+            }
+        }
+    };
+
+    const data = {
+        action: 'get_category_product_info',
+        products: JSON.stringify(list.products.map((p) => p.id_product)),
+        controller: controller,
+        user_id: user_id,
+    };
+    xhr.send('settings=' + btoa(encodeSettings(data)));
+}
+
 function trustBoxPreviewMode(settings) {
     const div = document.getElementById('trustpilot-trustbox-preview');
     if (settings.TrustBoxPreviewMode.enable) {
@@ -97,7 +123,7 @@ function trustBoxPreviewMode(settings) {
 
 function submitPastOrdersCommand(data) {
     const xhr = new XMLHttpRequest();
-    xhr.open('POST', ajax_url);
+    xhr.open('POST', trustpilot_ajax_url);
     xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
     xhr.onreadystatechange = function () {
         if (xhr.readyState === 4) {
@@ -117,7 +143,7 @@ function submitPastOrdersCommand(data) {
 
 function submitCheckProductSkusCommand(data) {
     const xhr = new XMLHttpRequest();
-    xhr.open('POST', ajax_url);
+    xhr.open('POST', trustpilot_ajax_url);
     xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
     xhr.onreadystatechange = function () {
         if (xhr.readyState === 4) {
@@ -145,7 +171,7 @@ function updateplugin() {
         context_scope: context_scope,
     };
     const xhr = new XMLHttpRequest();
-    xhr.open('POST', ajax_url);
+    xhr.open('POST', trustpilot_ajax_url);
     xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
     xhr.send('settings=' + btoa(encodeSettings(data)));
 }
@@ -159,7 +185,7 @@ function reloadSettings() {
         context_scope: context_scope,
     };
     const xhr = new XMLHttpRequest();
-    xhr.open('POST', ajax_url);
+    xhr.open('POST', trustpilot_ajax_url);
     xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
     xhr.onreadystatechange = function () {
         if (xhr.readyState === 4) {
@@ -205,7 +231,7 @@ function submitSettings(parsedData) {
     }
 
     const xhr = new XMLHttpRequest();
-    xhr.open('POST', ajax_url);
+    xhr.open('POST', trustpilot_ajax_url);
     xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
     xhr.send('settings=' + btoa(encodeSettings(data)));
 

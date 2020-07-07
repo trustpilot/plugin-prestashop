@@ -6,10 +6,10 @@
  *  @license   https://opensource.org/licenses/OSL-3.0
  */
 
-if (trustpilot_script_url) {
+if (typeof trustpilot_script_url  !== 'undefined') {
     load_tp_min();
 } else {
-    window.addEventListener('DOMContentLoaded', load_tp_min());
+    window.addEventListener('load', load_tp_min);
 }
 
 function load_tp_min() {

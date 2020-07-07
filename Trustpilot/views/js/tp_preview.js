@@ -6,10 +6,10 @@
  *  @copyright Trustpilot
  *  @license   https://opensource.org/licenses/OSL-3.0
  */
-if (trustpilot_widget_script_url) {
+if (typeof trustpilot_widget_script_url !== 'undefined') {
     load_preview();
 } else {
-    window.addEventListener('DOMContentLoaded', load_preview());
+    window.addEventListener('load', load_preview);
 }
 
 
