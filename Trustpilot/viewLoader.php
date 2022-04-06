@@ -110,7 +110,7 @@ class TrustpilotViewLoader
     public function getFirstProduct()
     {
         $lang = $this->getLanguageId();
-        $products = Product::getProducts($lang, 1, 1, 'id_product', 'ASC', false, true);
+        $products = Product::getProducts($lang, 0, 1, 'id_product', 'ASC', false, true);
         $firstProduct = $products[0];
         $product_id = $firstProduct['id_product'];
         $product = new Product($product_id, false, $lang);
