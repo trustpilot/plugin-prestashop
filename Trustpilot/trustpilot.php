@@ -204,9 +204,9 @@ class Trustpilot extends Module
 
     public function enable($force_all = false)
     {
-        parent::enable($force_all);
         $this->uninstallTabs();
         $this->installTab();
+        return parent::enable($force_all);
     }
 
     public function install()
@@ -347,12 +347,12 @@ class Trustpilot extends Module
         return $this->context->smarty->fetch(_PS_MODULE_DIR_.'trustpilot/views/templates/hook/confirmation.tpl');
     }
 
-    // Let's delete this hook (after checking in prod) if hookActionOrderHistoryAddAfter will cover all invitations plus missing ones
-    public function hookPostUpdateOrderStatus($params)
+    // Hook on order status update
+    public function hookActionOrderStatusPostUpdate($params)
     {
-        $this->sendBackendInvitation($params, 'postUpdateOrderStatus');
+        $this->sendBackendInvitation($params, 'actionOrderStatusPostUpdate');
     }
-    
+
     public function hookActionOrderHistoryAddAfter($params)
     {
         $newOrderStatus = new OrderState((int) $params['order_history']->id_order_state, (int) $params['cart']->id_lang);
@@ -420,10 +420,29 @@ class Trustpilot extends Module
 
     private function registerHooks()
     {
-        $common_hooks = array('displayOrderConfirmation', 'displayHeader', 'postUpdateOrderStatus', 'displayBackOfficeHeader');
-        $hooks_v17 = array('displayBeforeBodyClosingTag', 'filterProductSearch'); // v1.7 +
+        $hooks = array('displayOrderConfirmation', 'displayHeader', 'displayBackOfficeHeader');
+        $hooks_v80 = array('actionOrderStatusPostUpdate');                        // v8.0
+        $hooks_v17 = array('displayBeforeBodyClosingTag', 'filterProductSearch'); // v1.7
         $hooks_v16 = array('displayFooter');                                      // v1.6 and older
-        $hooks = array_merge($common_hooks, version_compare(_PS_VERSION_, '1.7', '<') ? $hooks_v16 : $hooks_v17);
+
+        // PS 8.0
+        if (version_compare(_PS_VERSION_, '8.0', '>')) {
+            $hooks = array_merge($hooks, $hooks_v80);
+        }
+
+        // PS 1.7
+        if (version_compare(_PS_VERSION_, '8.0', '<') &&
+            version_compare(_PS_VERSION_, '1.7', '>'))
+        {
+            $hooks = array_merge($hooks, $hooks_v17);
+        }
+
+        // PS 1.6
+        if (version_compare(_PS_VERSION_, '1.7', '<'))
+        {
+            $hooks = array_merge($hooks, $hooks_v16);
+        }
+
         foreach ($hooks as $hook) {
             if (!Hook::getIdByName($hook)) {
                 Logger::addLog('Trustpilot module: ' . $hook . ' hook was not found', 2);
